@@ -233,9 +233,38 @@ section h2 {
   font-size: 0.9rem;
 }
 
-.perf-row .change.up { color: var(--good); font-weight: 700; }
-.perf-row .change.down { color: var(--bad); font-weight: 700; }
-.perf-row .change.flat { color: var(--text-dim); font-weight: 700; }
+.perf-row .change.up, .sim-summary .change.up { color: var(--good); font-weight: 700; }
+.perf-row .change.down, .sim-summary .change.down { color: var(--bad); font-weight: 700; }
+.perf-row .change.flat, .sim-summary .change.flat { color: var(--text-dim); font-weight: 700; }
+
+.sim-box {
+  margin-top: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.sim-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+  font-size: 0.88rem;
+}
+
+.sim-note {
+  font-weight: 400;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.sim-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
 
 .limitup-card {
   background: var(--surface);

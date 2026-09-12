@@ -83,7 +83,7 @@ function renderPerformance(perf) {
     performanceEl.innerHTML = `<p class="loading">아직 마감 체크 전입니다. "지금 마감 체크"를 눌러보세요.</p>`;
     return;
   }
-  performanceEl.innerHTML = perf.results
+  const rows = perf.results
     .map((r) => {
       const cls = r.change_pct > 0 ? "up" : r.change_pct < 0 ? "down" : "flat";
       const sign = r.change_pct > 0 ? "+" : "";
@@ -95,6 +95,24 @@ function renderPerformance(perf) {
       </div>`;
     })
     .join("");
+
+  const sim = perf.simulation;
+  const simHtml = sim
+    ? (() => {
+        const cls = sim.profit > 0 ? "up" : sim.profit < 0 ? "down" : "flat";
+        const sign = sim.profit >= 0 ? "+" : "";
+        return `
+        <div class="sim-box">
+          <div class="sim-title">💰 1,000만원 가상 투자 시뮬레이션 <span class="sim-note">(수수료·세금 미반영)</span></div>
+          <div class="sim-summary">
+            <span>${fmtPrice(sim.seed)} → ${fmtPrice(sim.final_value)}</span>
+            <span class="change ${cls}">${sign}${sim.profit.toLocaleString("ko-KR")}원 (${sign}${sim.profit_pct}%)</span>
+          </div>
+        </div>`;
+      })()
+    : "";
+
+  performanceEl.innerHTML = rows + simHtml;
 }
 
 function renderLimitUpToday(events) {

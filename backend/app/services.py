@@ -21,6 +21,53 @@ from .notify import discord, push
 logger = logging.getLogger(__name__)
 
 _KST = zoneinfo.ZoneInfo("Asia/Seoul")
+SIMULATION_SEED_KRW = 10_000_000  # 가상 투자 시뮬레이션 시드 금액 (1,000만원)
+
+
+def _simulate_virtual_portfolio(results: list[dict]) -> dict | None:
+    """오늘 추천 3종목을 07시 기준가에 '가상으로 매수'해서 16시 종가에 '매도'했다면
+    1,000만원이 얼마가 됐을지 계산한다 (수수료·세금·슬리피지 미반영, 종목별 균등 배분).
+    """
+    if not results:
+        return None
+
+    budget_per_stock = SIMULATION_SEED_KRW / len(results)
+    holdings = []
+    total_cost = 0
+    total_value = 0
+    for r in results:
+        buy_price = r["rec_price"]
+        sell_price = r["current_price"]
+        if not buy_price:
+            continue
+        shares = int(budget_per_stock // buy_price)
+        cost = shares * buy_price
+        value = shares * sell_price
+        total_cost += cost
+        total_value += value
+        holdings.append(
+            {
+                "ticker": r["ticker"],
+                "name": r["name"],
+                "shares": shares,
+                "buy_price": buy_price,
+                "sell_price": sell_price,
+                "cost": int(cost),
+                "value": int(value),
+            }
+        )
+
+    leftover_cash = SIMULATION_SEED_KRW - total_cost  # 주가가 배분액보다 커서 못 산 잔액
+    final_value = int(total_value + leftover_cash)
+    profit = final_value - SIMULATION_SEED_KRW
+
+    return {
+        "seed": SIMULATION_SEED_KRW,
+        "final_value": final_value,
+        "profit": profit,
+        "profit_pct": round(profit / SIMULATION_SEED_KRW * 100, 2),
+        "holdings": holdings,
+    }
 
 
 def _notify(db: Session, payload: dict) -> dict:
@@ -161,17 +208,23 @@ def _check_performance(db: Session, snapshot: list[dict], trading_date: str) -> 
         cur = snap_by_ticker.get(s["ticker"])
         if not cur:
             continue
+        rec_price = s["close"]  # 07시 추천 당시 기준가(직전 거래일 종가)
+        current_price = cur["close_price"]
+        # 스냅샷의 fluctuationsRatio(전일 대비 등락률)가 아니라, 추천가 대비로 직접 계산해야
+        # "추천 시점 대비 등락률"이라는 의미와 항상 정확히 일치한다.
+        change_pct = round((current_price - rec_price) / rec_price * 100, 2) if rec_price else 0.0
         results.append(
             {
                 "ticker": s["ticker"],
                 "name": s["name"],
-                "rec_price": s["close"],  # 07시 추천 당시 기준가(직전 거래일 종가)
-                "current_price": cur["close_price"],
-                "change_pct": cur["change_pct"],  # 당일 등락률 = 추천 시점 대비 등락률
+                "rec_price": rec_price,
+                "current_price": current_price,
+                "change_pct": change_pct,
             }
         )
 
-    performance = {"trading_date": trading_date, "results": results}
+    simulation = _simulate_virtual_portfolio(results)
+    performance = {"trading_date": trading_date, "results": results, "simulation": simulation}
     rec.eod_json = json.dumps(performance, ensure_ascii=False)
     db.commit()
     return performance
@@ -228,6 +281,16 @@ def _build_eod_payload(performance: dict | None, limit_up: list[dict]) -> dict:
     else:
         perf_text = "오늘 추천 기록 없음"
 
+    sim_text = ""
+    sim = performance.get("simulation") if performance else None
+    if sim:
+        sign = "+" if sim["profit"] >= 0 else ""
+        sim_text = (
+            f"\n💰 1,000만원 가상 투자 시뮬레이션(수수료 미반영): "
+            f"{sign}{sim['profit']:,}원 ({sign}{sim['profit_pct']}%) "
+            f"→ 평가금액 {sim['final_value']:,}원"
+        )
+
     limitup_text = ""
     if limit_up:
         names = ", ".join(e["name"] for e in limit_up[:5])
@@ -235,7 +298,7 @@ def _build_eod_payload(performance: dict | None, limit_up: list[dict]) -> dict:
 
     return {
         "title": "오늘 마감 결과",
-        "body": f"[내 추천 등락률] {perf_text}{limitup_text}",
+        "body": f"[내 추천 등락률] {perf_text}{sim_text}{limitup_text}",
         "url": "/",
     }
 
