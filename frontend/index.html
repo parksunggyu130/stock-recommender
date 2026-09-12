@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>주식 추천</title>
+<meta name="theme-color" content="#2563eb" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/icons/icon-192.png" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>📈 주식 추천</h1>
+      <p class="subtitle">1개월 일봉 기술적 스크리닝 + 뉴스 검색 기반</p>
+    </header>
+
+    <div class="disclaimer">
+      ⚠️ 본 서비스는 <strong>투자 참고용</strong>이며 투자 권유가 아닙니다. 투자 판단과 그 책임은 본인에게 있습니다.
+    </div>
+
+    <div class="controls">
+      <button id="refreshBtn" class="btn btn-primary">🔄 지금 추천받기</button>
+      <button id="eodBtn" class="btn btn-outline">📊 지금 마감 체크</button>
+      <button id="notifyBtn" class="btn btn-outline">🔔 매일 아침 7시 알림 켜기</button>
+    </div>
+    <p id="notifyStatus" class="notify-status"></p>
+
+    <section>
+      <h2>오늘의 추천 TOP 3</h2>
+      <p id="metaInfo" class="meta-info"></p>
+      <div id="top3" class="top3-grid">
+        <p class="loading">불러오는 중…</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>📊 오늘 추천 종목 성과 (16시 마감 기준)</h2>
+      <p class="meta-info">07시 추천 당시 기준가 대비 오늘 종가 등락률입니다.</p>
+      <div id="performance" class="perf-list">
+        <p class="loading">아직 마감 체크 전입니다. "지금 마감 체크"를 눌러보세요.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>🚀 오늘의 상한가 종목 &amp; 추정 사유</h2>
+      <p class="meta-info">뉴스 검색 기반 추정이며 실제 원인과 다를 수 있습니다.</p>
+      <div id="limitUpToday" class="limitup-list">
+        <p class="loading">불러오는 중…</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>🔍 상한가 사전 징조 분석</h2>
+      <p id="precursorMeta" class="meta-info"></p>
+      <div id="precursorStats" class="precursor-table"></div>
+    </section>
+
+    <section>
+      <h2>스크리닝 TOP 10 후보</h2>
+      <div id="top10" class="top10-list"></div>
+    </section>
+
+    <footer class="footer">
+      <p>데이터: KRX 공개 데이터(pykrx) · 시세: 네이버 증권 공개 API · 뉴스: 네이버 뉴스 검색</p>
+      <p>기준일: <span id="tradingDate">-</span></p>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
