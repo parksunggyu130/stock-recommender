@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import zoneinfo
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,6 +20,8 @@ from .notify import discord, push
 
 logger = logging.getLogger(__name__)
 
+_KST = zoneinfo.ZoneInfo("Asia/Seoul")
+
 
 def _notify(db: Session, payload: dict) -> dict:
     """웹푸시(VAPID) 구독자 + (설정된 경우) 디스코드 웹후크로 함께 발송한다."""
@@ -28,8 +31,17 @@ def _notify(db: Session, payload: dict) -> dict:
     return result
 
 
+def _kst_today() -> datetime.date:
+    """서버가 어느 시간대(UTC 등)에서 돌아가든 한국 날짜 기준으로 '오늘'을 계산한다."""
+    return datetime.datetime.now(_KST).date()
+
+
+def _is_weekend(day: datetime.date) -> bool:
+    return day.weekday() >= 5  # 5=토요일, 6=일요일
+
+
 def _today_str() -> str:
-    return datetime.date.today().isoformat()
+    return _kst_today().isoformat()
 
 
 def _row_to_dict(row: DailyRecommendation) -> dict:
@@ -90,7 +102,14 @@ def force_refresh(db: Session) -> dict:
 
 
 def run_and_notify(db: Session) -> dict:
-    """매일 07:00 스케줄러 / 외부 크론이 호출: 계산 + 아직 안 보냈으면 푸시 발송."""
+    """매일 07:00 스케줄러 / 외부 크론이 호출: 계산 + 아직 안 보냈으면 푸시 발송.
+
+    주말(토/일)에는 새로 열리는 장이 없어 알림을 보내지 않고 건너뛴다.
+    ("지금 추천받기" 수동 버튼은 주말에도 직전 거래일 데이터를 그대로 보여준다.)
+    """
+    if _is_weekend(_kst_today()):
+        return {"status": "skipped_weekend", "date": _today_str()}
+
     existing = db.query(DailyRecommendation).filter_by(date=_today_str()).first()
     if existing is None:
         result = run_daily_pipeline()
@@ -233,7 +252,13 @@ def eod_compute(db: Session) -> dict:
 
 
 def eod_run_and_notify(db: Session) -> dict:
-    """매일 16:00 스케줄러 / 외부 크론이 호출: 마감 체크 + 아직 안 보냈으면 푸시 발송."""
+    """매일 16:00 스케줄러 / 외부 크론이 호출: 마감 체크 + 아직 안 보냈으면 푸시 발송.
+
+    주말(토/일)에는 마감 자체가 없어 알림을 보내지 않고 건너뛴다.
+    """
+    if _is_weekend(_kst_today()):
+        return {"status": "skipped_weekend", "date": _today_str()}
+
     result = eod_compute(db)
 
     rec = db.query(DailyRecommendation).filter_by(date=_today_str()).first()

@@ -1,3 +1,4 @@
+.claude/
 backend/.venv/
 backend/.env
 backend/data.db
