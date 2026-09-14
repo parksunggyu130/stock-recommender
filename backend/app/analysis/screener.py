@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..config import settings
 from ..data import krx, news
@@ -9,20 +10,32 @@ from .indicators import score_stock
 
 logger = logging.getLogger(__name__)
 
+# 종목별 OHLCV 조회는 네트워크 대기가 대부분이라, 병렬로 호출해야 500종목 스캔이
+# (특히 원격 서버 배포 환경에서) 수 분이 아니라 수십 초 안에 끝난다.
+MAX_WORKERS = 20
+
+
+def _score_one(stock_info: dict, trading_date: str) -> dict | None:
+    ticker = stock_info["ticker"]
+    try:
+        df = krx.get_recent_ohlcv(ticker, trading_date)
+        result = score_stock(df)
+    except Exception as exc:  # 개별 종목 실패는 건너뛰고 계속 진행
+        logger.warning("스코어링 실패 %s(%s): %s", stock_info["name"], ticker, exc)
+        return None
+    if result is None:
+        return None
+    return {**stock_info, **result}
+
 
 def _score_universe(universe: list[dict], trading_date: str) -> list[dict]:
     scored = []
-    for stock_info in universe:
-        ticker = stock_info["ticker"]
-        try:
-            df = krx.get_recent_ohlcv(ticker, trading_date)
-            result = score_stock(df)
-        except Exception as exc:  # 개별 종목 실패는 건너뛰고 계속 진행
-            logger.warning("스코어링 실패 %s(%s): %s", stock_info["name"], ticker, exc)
-            continue
-        if result is None:
-            continue
-        scored.append({**stock_info, **result})
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(_score_one, stock_info, trading_date) for stock_info in universe]
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                scored.append(result)
     return scored
 
 

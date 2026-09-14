@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .analysis import limitup
 from .analysis.screener import run_daily_pipeline
 from .data import krx, news
+from .db import SessionLocal
 from .models import DailyRecommendation, LimitUpEvent
 from .notify import discord, push
 
@@ -182,6 +183,19 @@ def run_and_notify(db: Session) -> dict:
     return {"status": "notified", "date": row.date, **notify_result}
 
 
+def run_daily_job() -> dict:
+    """DB 세션을 직접 열고 닫으며 07시 작업을 실행한다.
+
+    인프로세스 스케줄러와 크론 엔드포인트의 백그라운드 태스크가 공용으로 쓴다
+    (요청 스코프 세션에 의존하지 않아야, 백그라운드로 넘어가도 안전하게 동작한다).
+    """
+    db = SessionLocal()
+    try:
+        return run_and_notify(db)
+    finally:
+        db.close()
+
+
 # ---- 16:00 마감 체크: 추천 성과 + 상한가 스캔/사유 분석/징조 기록 ----
 
 
@@ -337,6 +351,15 @@ def eod_run_and_notify(db: Session) -> dict:
     db.commit()
 
     return {"status": "notified", **result, **notify_result}
+
+
+def run_eod_job() -> dict:
+    """DB 세션을 직접 열고 닫으며 16시 마감 작업을 실행한다 (run_daily_job과 동일한 이유)."""
+    db = SessionLocal()
+    try:
+        return eod_run_and_notify(db)
+    finally:
+        db.close()
 
 
 def get_performance_today(db: Session) -> dict | None:

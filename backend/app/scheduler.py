@@ -6,7 +6,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from .config import settings
-from .db import SessionLocal
 from . import services
 
 logger = logging.getLogger(__name__)
@@ -15,25 +14,19 @@ _scheduler: BackgroundScheduler | None = None
 
 
 def _daily_job() -> None:
-    db = SessionLocal()
     try:
-        result = services.run_and_notify(db)
+        result = services.run_daily_job()
         logger.info("07시 스케줄 작업 완료: %s", result)
     except Exception:
         logger.exception("07시 스케줄 작업 실패")
-    finally:
-        db.close()
 
 
 def _eod_job() -> None:
-    db = SessionLocal()
     try:
-        result = services.eod_run_and_notify(db)
+        result = services.run_eod_job()
         logger.info("16시 마감 체크 작업 완료: %s", result)
     except Exception:
         logger.exception("16시 마감 체크 작업 실패")
-    finally:
-        db.close()
 
 
 def start_scheduler() -> BackgroundScheduler | None:
