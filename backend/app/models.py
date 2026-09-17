@@ -26,6 +26,7 @@ class DailyRecommendation(Base):
     notified = Column(Integer, default=0)  # 0/1, 오늘자 07시 알림 발송 여부
     eod_json = Column(Text, nullable=True)  # 16시 마감 체크 결과 (top3 등락률 등)
     eod_notified = Column(Integer, default=0)  # 0/1, 16시 마감 알림 발송 여부
+    precursor_candidates_json = Column(Text, nullable=True)  # 07시 "상한가 조짐" 후보 (data/analysis/limitup.py)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

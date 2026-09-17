@@ -8,3 +8,7 @@ backend/dist/
 backend/*.spec
 __pycache__/
 *.pyc
+
+# 개인용 참고자료 (저작권자가 재배포 금지한 개인 학습용 파일) — 절대 커밋하지 않음
+01_PHCVS30_*.md
+02_PHCVS30_*.md

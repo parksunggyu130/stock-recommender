@@ -85,4 +85,5 @@ def run_daily_pipeline() -> dict:
         "top10": top10_with_news,
         "top3": top3,
         "news_enabled": news.is_configured(),
+        "universe_scored": scored,  # 상한가 조짐 매칭용 (top10 밖 종목 포함 전체 스캔 결과)
     }

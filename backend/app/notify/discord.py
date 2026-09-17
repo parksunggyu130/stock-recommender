@@ -19,11 +19,17 @@ def is_configured() -> bool:
     return bool(settings.DISCORD_WEBHOOK_URL)
 
 
+DISCORD_CONTENT_LIMIT = 2000
+
+
 def send(payload: dict) -> bool:
     """payload: {"title": str, "body": str, ...}. 성공 여부를 반환한다."""
     if not is_configured():
         return False
     content = f"**{payload.get('title', '알림')}**\n{payload.get('body', '')}"
+    if len(content) > DISCORD_CONTENT_LIMIT:
+        # 디스코드 웹후크는 2000자 초과 시 요청 자체를 거부하므로, 잘라서라도 알림은 보낸다.
+        content = content[: DISCORD_CONTENT_LIMIT - 20] + "\n…(내용 생략, 앱에서 확인)"
     try:
         resp = requests.post(settings.DISCORD_WEBHOOK_URL, json={"content": content}, timeout=10)
         if resp.status_code >= 300:

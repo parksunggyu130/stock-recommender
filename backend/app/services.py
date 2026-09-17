@@ -99,10 +99,27 @@ def _row_to_dict(row: DailyRecommendation) -> dict:
         "top10": json.loads(row.top10_json),
         "top3": json.loads(row.top3_json),
         "notified": bool(row.notified),
+        "precursor_candidates": (
+            json.loads(row.precursor_candidates_json)
+            if row.precursor_candidates_json
+            else {"enabled": False, "candidates": []}
+        ),
     }
 
 
+def _compute_precursor_candidates_json(db: Session, result: dict) -> str:
+    """오늘 전체 스캔 결과와 누적된 상한가 이벤트를 비교해 '상한가 조짐' 후보를 찾는다.
+
+    표본(상한가 이벤트)이 limitup.MIN_EVENTS_FOR_PRECURSOR_MATCH 미만이면 통계적으로
+    신뢰할 수 없어 자동으로 빈 결과를 낸다 — 데이터가 쌓일수록 자연히 켜진다.
+    """
+    events = db.query(LimitUpEvent).all()
+    candidates = limitup.find_precursor_candidates(result.get("universe_scored", []), events)
+    return json.dumps(candidates, ensure_ascii=False)
+
+
 def _save(db: Session, result: dict, existing: DailyRecommendation | None) -> DailyRecommendation:
+    precursor_json = _compute_precursor_candidates_json(db, result)
     if existing is None:
         row = DailyRecommendation(
             date=result["date"],
@@ -110,6 +127,7 @@ def _save(db: Session, result: dict, existing: DailyRecommendation | None) -> Da
             top10_json=json.dumps(result["top10"], ensure_ascii=False),
             top3_json=json.dumps(result["top3"], ensure_ascii=False),
             notified=0,
+            precursor_candidates_json=precursor_json,
         )
         db.add(row)
         try:
@@ -126,6 +144,7 @@ def _save(db: Session, result: dict, existing: DailyRecommendation | None) -> Da
         row.trading_date = result["trading_date"]
         row.top10_json = json.dumps(result["top10"], ensure_ascii=False)
         row.top3_json = json.dumps(result["top3"], ensure_ascii=False)
+        row.precursor_candidates_json = precursor_json
         db.commit()
     db.refresh(row)
     return row
@@ -147,6 +166,21 @@ def force_refresh(db: Session) -> dict:
     result = run_daily_pipeline()
     row = _save(db, result, existing)
     return _row_to_dict(row)
+
+
+def _format_precursor_section(precursor_candidates_json: str | None) -> str:
+    """07시 알림에 붙일 '상한가 조짐' 후보 섹션. 표본 부족 등으로 꺼져있으면 빈 문자열."""
+    if not precursor_candidates_json:
+        return ""
+    data = json.loads(precursor_candidates_json)
+    candidates = data.get("candidates") or []
+    if not candidates:
+        return ""
+    names = ", ".join(f"{c['name']}({c['ticker']})" for c in candidates)
+    return (
+        f"\n\n🔮 상한가 조짐 후보(참고용, top3와 별개 — 과거 상한가 전날 패턴과 유사, "
+        f"표본 {data.get('total_events')}건 기반 추정): {names}"
+    )
 
 
 def run_and_notify(db: Session) -> dict:
@@ -172,7 +206,7 @@ def run_and_notify(db: Session) -> dict:
     names = ", ".join(f"{s['name']}({s['ticker']})" for s in top3)
     payload = {
         "title": "오늘의 추천 종목 3",
-        "body": f"{names}\n※ 투자 참고용, 투자 권유 아님",
+        "body": f"{names}\n※ 투자 참고용, 투자 권유 아님{_format_precursor_section(row.precursor_candidates_json)}",
         "url": "/",
     }
     notify_result = _notify(db, payload)
@@ -305,16 +339,36 @@ def _build_eod_payload(performance: dict | None, limit_up: list[dict]) -> dict:
             f"→ 평가금액 {sim['final_value']:,}원"
         )
 
-    limitup_text = ""
-    if limit_up:
-        names = ", ".join(e["name"] for e in limit_up[:5])
-        limitup_text = f"\n🚀 오늘 상한가: {names}"
+    limitup_text = _format_limit_up_section(limit_up)
 
     return {
         "title": "오늘 마감 결과",
         "body": f"[내 추천 등락률] {perf_text}{sim_text}{limitup_text}",
         "url": "/",
     }
+
+
+def _format_limit_up_section(limit_up: list[dict], max_stocks: int = 5) -> str:
+    """상한가 종목별 뉴스 기반 추정 사유(키워드/헤드라인)를 디스코드용 텍스트로 정리한다."""
+    if not limit_up:
+        return ""
+
+    lines = [f"\n🚀 오늘 상한가 ({len(limit_up)}종목):"]
+    for e in limit_up[:max_stocks]:
+        keywords = ", ".join(e["keywords"][:3]) if e["keywords"] else "관련 키워드 없음"
+        if e["headlines"]:
+            headline = e["headlines"][0]
+            if len(headline) > 40:
+                headline = headline[:40] + "…"
+            headline_part = f'\n  "{headline}"'
+        else:
+            headline_part = ""
+        lines.append(f"· {e['name']}({e['ticker']}) {e['change_pct']:+.2f}% — {keywords}{headline_part}")
+
+    if len(limit_up) > max_stocks:
+        lines.append(f"…외 {len(limit_up) - max_stocks}종목 (앱에서 전체 확인)")
+    lines.append("(뉴스 검색 기반 추정 사유이며 실제 원인과 다를 수 있음)")
+    return "\n".join(lines)
 
 
 def eod_compute(db: Session) -> dict:
