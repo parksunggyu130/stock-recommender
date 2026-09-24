@@ -29,6 +29,11 @@ UPPER_LIMIT_THRESHOLD = 29.5  # 상한가(+30%) 판정 임계치 (반올림/오�
 
 _session = requests.Session()
 _session.headers.update(_HEADERS)
+# screener.py가 ThreadPoolExecutor(MAX_WORKERS=20)로 동시 조회하므로, 기본 풀 크기(10)로는
+# "Connection pool is full" 경고와 함께 연결이 매번 새로 맺어져 느려진다.
+_adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
 
 
 def _to_int(raw) -> int:
