@@ -191,7 +191,8 @@ def _format_top3_with_reasons(top3: list[dict], reasons_key: str = "reasons") ->
     lines = []
     for i, s in enumerate(top3, start=1):
         reasons = ", ".join(s.get(reasons_key) or []) or "조건 없음"
-        lines.append(f"{i}. {s['name']}({s['ticker']}) — {reasons}")
+        price = f"{int(s['close']):,}원" if s.get("close") else ""
+        lines.append(f"{i}. {s['name']}({s['ticker']}) {price} — {reasons}")
     return "\n".join(lines)
 
 
