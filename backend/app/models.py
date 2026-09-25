@@ -23,10 +23,11 @@ class DailyRecommendation(Base):
     trading_date = Column(String(8), nullable=False)  # YYYYMMDD (실제 데이터 기준일)
     top10_json = Column(Text, nullable=False)
     top3_json = Column(Text, nullable=False)
-    notified = Column(Integer, default=0)  # 0/1, 오늘자 07시 알림 발송 여부
-    eod_json = Column(Text, nullable=True)  # 16시 마감 체크 결과 (top3 등락률 등)
-    eod_notified = Column(Integer, default=0)  # 0/1, 16시 마감 알림 발송 여부
-    precursor_candidates_json = Column(Text, nullable=True)  # 07시 "상한가 조짐" 후보 (data/analysis/limitup.py)
+    gap_top3_json = Column(Text, nullable=True)  # 16시 "익일 갭상승 후보" top3 (top3와 별개 스코어링)
+    notified = Column(Integer, default=0)  # 0/1, 16시 추천 알림 발송 여부
+    eod_json = Column(Text, nullable=True)  # 다음날 10시 성과체크 결과 ({"main": {...}, "gap": {...}})
+    eod_notified = Column(Integer, default=0)  # 0/1, 다음날 10시 성과체크 알림 발송 여부
+    precursor_candidates_json = Column(Text, nullable=True)  # 16시 "상한가 조짐" 후보 (data/analysis/limitup.py)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

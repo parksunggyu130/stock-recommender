@@ -221,6 +221,19 @@ section h2 {
   gap: 8px;
 }
 
+.perf-set {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.perf-set h3 {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin: 0;
+}
+
 .perf-row {
   display: flex;
   align-items: center;

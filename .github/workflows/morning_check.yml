@@ -1,8 +1,8 @@
-name: 07:00 KST daily recommendation
+name: 10:00 KST morning performance check
 
 on:
   schedule:
-    - cron: "0 22 * * *"  # 22:00 UTC == 07:00 KST(다음날). 주말 스킵은 앱 내부(_is_weekend)에서 처리.
+    - cron: "0 1 * * *"  # 01:00 UTC == 10:00 KST(같은 날). 주말 스킵은 앱 내부(_is_weekend)에서 처리.
   workflow_dispatch: {}
 
 permissions:
@@ -32,14 +32,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
-      - name: Run daily job
+      - name: Run morning check job
         working-directory: backend
         env:
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           RUN_INPROCESS_SCHEDULER: "false"
-        run: python -m app.scripts.run_daily
+        run: python -m app.scripts.run_morning_check
 
       - name: Persist data.db back to data branch
         run: |
@@ -48,5 +48,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data.db
-          git diff --cached --quiet && echo "no changes" || git commit -m "Update data.db after daily run [skip ci]"
+          git diff --cached --quiet && echo "no changes" || git commit -m "Update data.db after morning check run [skip ci]"
           git push origin HEAD:data

@@ -14,6 +14,7 @@ Base = declarative_base()
 _SQLITE_COLUMN_MIGRATIONS = {
     "daily_recommendations": [
         ("precursor_candidates_json", "TEXT"),
+        ("gap_top3_json", "TEXT"),
     ],
 }
 

@@ -98,6 +98,7 @@ def _row_to_dict(row: DailyRecommendation) -> dict:
         "trading_date": row.trading_date,
         "top10": json.loads(row.top10_json),
         "top3": json.loads(row.top3_json),
+        "gap_top3": json.loads(row.gap_top3_json) if row.gap_top3_json else [],
         "notified": bool(row.notified),
         "precursor_candidates": (
             json.loads(row.precursor_candidates_json)
@@ -120,12 +121,14 @@ def _compute_precursor_candidates_json(db: Session, result: dict) -> str:
 
 def _save(db: Session, result: dict, existing: DailyRecommendation | None) -> DailyRecommendation:
     precursor_json = _compute_precursor_candidates_json(db, result)
+    gap_top3_json = json.dumps(result.get("gap_top3", []), ensure_ascii=False)
     if existing is None:
         row = DailyRecommendation(
             date=result["date"],
             trading_date=result["trading_date"],
             top10_json=json.dumps(result["top10"], ensure_ascii=False),
             top3_json=json.dumps(result["top3"], ensure_ascii=False),
+            gap_top3_json=gap_top3_json,
             notified=0,
             precursor_candidates_json=precursor_json,
         )
@@ -144,6 +147,7 @@ def _save(db: Session, result: dict, existing: DailyRecommendation | None) -> Da
         row.trading_date = result["trading_date"]
         row.top10_json = json.dumps(result["top10"], ensure_ascii=False)
         row.top3_json = json.dumps(result["top3"], ensure_ascii=False)
+        row.gap_top3_json = gap_top3_json
         row.precursor_candidates_json = precursor_json
         db.commit()
     db.refresh(row)
@@ -183,8 +187,17 @@ def _format_precursor_section(precursor_candidates_json: str | None) -> str:
     )
 
 
+def _format_gap_section(gap_top3: list[dict]) -> str:
+    """16시 알림에 붙일 '익일 갭상승 후보' 섹션(메인 top3와 별개 스코어링). 후보가 없으면 빈 문자열."""
+    if not gap_top3:
+        return ""
+    names = ", ".join(f"{s['name']}({s['ticker']})" for s in gap_top3)
+    return f"\n\n📈 익일 갭상승 후보(오늘 캔들 특징 기반, top3와 별개): {names}"
+
+
 def run_and_notify(db: Session) -> dict:
-    """매일 07:00 스케줄러 / 외부 크론이 호출: 계산 + 아직 안 보냈으면 푸시 발송.
+    """매일 16:00 스케줄러 / 외부 크론이 호출: 그날 종가 기준 스크리닝(시간외매매 매수 가능)
+    + 상한가 스캔/기록 + 아직 안 보냈으면 푸시 발송.
 
     주말(토/일)에는 새로 열리는 장이 없어 알림을 보내지 않고 건너뛴다.
     ("지금 추천받기" 수동 버튼은 주말에도 직전 거래일 데이터를 그대로 보여준다.)
@@ -199,14 +212,26 @@ def run_and_notify(db: Session) -> dict:
     else:
         row = existing
 
+    # 상한가 스캔/조짐 기록은 알림 발송 여부와 무관하게 항상 최신 상태로 유지한다
+    # (재실행돼도 이미 기록된 이벤트는 건드리지 않음 — _scan_limit_up이 자체적으로 멱등).
+    snapshot = krx.get_full_market_snapshot()
+    trading_date = krx.get_latest_trading_date(snapshot)
+    limit_up = _scan_limit_up(db, snapshot, trading_date)
+
     if row.notified:
-        return {"status": "already_notified", "date": row.date}
+        return {"status": "already_notified", "date": row.date, "limit_up": limit_up}
 
     top3 = json.loads(row.top3_json)
+    gap_top3 = json.loads(row.gap_top3_json) if row.gap_top3_json else []
     names = ", ".join(f"{s['name']}({s['ticker']})" for s in top3)
     payload = {
-        "title": "오늘의 추천 종목 3",
-        "body": f"{names}\n※ 투자 참고용, 투자 권유 아님{_format_precursor_section(row.precursor_candidates_json)}",
+        "title": "오늘 16시 종가 기준 추천 (시간외매매 매수 가능)",
+        "body": (
+            f"{names}\n※ 투자 참고용, 투자 권유 아님"
+            f"{_format_gap_section(gap_top3)}"
+            f"{_format_limit_up_section(limit_up)}"
+            f"{_format_precursor_section(row.precursor_candidates_json)}"
+        ),
         "url": "/",
     }
     notify_result = _notify(db, payload)
@@ -214,13 +239,13 @@ def run_and_notify(db: Session) -> dict:
     row.notified = 1
     db.commit()
 
-    return {"status": "notified", "date": row.date, **notify_result}
+    return {"status": "notified", "date": row.date, "limit_up": limit_up, **notify_result}
 
 
-def run_daily_job() -> dict:
-    """DB 세션을 직접 열고 닫으며 07시 작업을 실행한다.
+def run_recommend_job() -> dict:
+    """DB 세션을 직접 열고 닫으며 16시 추천 작업을 실행한다.
 
-    인프로세스 스케줄러와 크론 엔드포인트의 백그라운드 태스크가 공용으로 쓴다
+    인프로세스 스케줄러와 GitHub Actions 워크플로가 공용으로 쓴다
     (요청 스코프 세션에 의존하지 않아야, 백그라운드로 넘어가도 안전하게 동작한다).
     """
     db = SessionLocal()
@@ -230,7 +255,7 @@ def run_daily_job() -> dict:
         db.close()
 
 
-# ---- 16:00 마감 체크: 추천 성과 + 상한가 스캔/사유 분석/징조 기록 ----
+# ---- 16:00 상한가 스캔/사유 분석/징조 기록 (recommend 잡에서 공용으로 씀) ----
 
 
 def _event_to_dict(ev: LimitUpEvent) -> dict:
@@ -242,40 +267,6 @@ def _event_to_dict(ev: LimitUpEvent) -> dict:
         "headlines": json.loads(ev.reason_headlines_json),
         "keywords": json.loads(ev.reason_keywords_json),
     }
-
-
-def _check_performance(db: Session, snapshot: list[dict], trading_date: str) -> dict | None:
-    rec = db.query(DailyRecommendation).filter_by(date=_today_str()).first()
-    if rec is None:
-        return None
-
-    snap_by_ticker = {r["ticker"]: r for r in snapshot}
-    top3 = json.loads(rec.top3_json)
-    results = []
-    for s in top3:
-        cur = snap_by_ticker.get(s["ticker"])
-        if not cur:
-            continue
-        rec_price = s["close"]  # 07시 추천 당시 기준가(직전 거래일 종가)
-        current_price = cur["close_price"]
-        # 스냅샷의 fluctuationsRatio(전일 대비 등락률)가 아니라, 추천가 대비로 직접 계산해야
-        # "추천 시점 대비 등락률"이라는 의미와 항상 정확히 일치한다.
-        change_pct = round((current_price - rec_price) / rec_price * 100, 2) if rec_price else 0.0
-        results.append(
-            {
-                "ticker": s["ticker"],
-                "name": s["name"],
-                "rec_price": rec_price,
-                "current_price": current_price,
-                "change_pct": change_pct,
-            }
-        )
-
-    simulation = _simulate_virtual_portfolio(results)
-    performance = {"trading_date": trading_date, "results": results, "simulation": simulation}
-    rec.eod_json = json.dumps(performance, ensure_ascii=False)
-    db.commit()
-    return performance
 
 
 def _scan_limit_up(db: Session, snapshot: list[dict], trading_date: str) -> list[dict]:
@@ -323,29 +314,48 @@ def _scan_limit_up(db: Session, snapshot: list[dict], trading_date: str) -> list
     return summaries
 
 
-def _build_eod_payload(performance: dict | None, limit_up: list[dict]) -> dict:
-    if performance and performance["results"]:
-        perf_text = ", ".join(f"{r['name']} {r['change_pct']:+.2f}%" for r in performance["results"])
-    else:
-        perf_text = "오늘 추천 기록 없음"
+def _compute_set_performance(snap_by_ticker: dict, items: list[dict]) -> list[dict]:
+    """추천 종목 리스트(top3 또는 gap_top3)의 현재가 기준 등락률을 계산한다."""
+    results = []
+    for s in items:
+        cur = snap_by_ticker.get(s["ticker"])
+        if not cur:
+            continue
+        rec_price = s["close"]  # 16시 추천 당시 기준가(그날 종가)
+        current_price = cur["close_price"]
+        change_pct = round((current_price - rec_price) / rec_price * 100, 2) if rec_price else 0.0
+        results.append(
+            {
+                "ticker": s["ticker"],
+                "name": s["name"],
+                "rec_price": rec_price,
+                "current_price": current_price,
+                "change_pct": change_pct,
+            }
+        )
+    return results
 
+
+def _format_perf_set(label: str, perf_set: dict) -> str:
+    results = perf_set["results"]
+    if not results:
+        return f"[{label}] 기록 없음"
+    text = ", ".join(f"{r['name']} {r['change_pct']:+.2f}%" for r in results)
+    sim = perf_set.get("simulation")
     sim_text = ""
-    sim = performance.get("simulation") if performance else None
     if sim:
         sign = "+" if sim["profit"] >= 0 else ""
-        sim_text = (
-            f"\n💰 1,000만원 가상 투자 시뮬레이션(수수료 미반영): "
-            f"{sign}{sim['profit']:,}원 ({sign}{sim['profit_pct']}%) "
-            f"→ 평가금액 {sim['final_value']:,}원"
-        )
+        sim_text = f" → 1,000만원 투자 시 {sign}{sim['profit']:,}원({sign}{sim['profit_pct']}%)"
+    return f"[{label}] {text}{sim_text}"
 
-    limitup_text = _format_limit_up_section(limit_up)
 
-    return {
-        "title": "오늘 마감 결과",
-        "body": f"[내 추천 등락률] {perf_text}{sim_text}{limitup_text}",
-        "url": "/",
-    }
+def _build_morning_check_payload(performance: dict) -> dict:
+    body = (
+        f"{performance['recommended_date']} 16시 추천 성과 (오늘 10시 기준)\n"
+        f"{_format_perf_set('메인 top3', performance['main'])}\n"
+        f"{_format_perf_set('갭상승 후보', performance['gap'])}"
+    )
+    return {"title": "어제 추천 성과 체크", "body": body, "url": "/"}
 
 
 def _format_limit_up_section(limit_up: list[dict], max_stocks: int = 5) -> str:
@@ -371,54 +381,104 @@ def _format_limit_up_section(limit_up: list[dict], max_stocks: int = 5) -> str:
     return "\n".join(lines)
 
 
+def _find_pending_morning_check(db: Session) -> DailyRecommendation | None:
+    """아직 성과체크(eod_notified) 안 된, 오늘 이전 날짜 중 가장 최근 추천 행을 찾는다.
+
+    "오늘 이전 중 가장 최근"으로 찾기 때문에 주말/공휴일로 며칠 비어도, 혹은 체크가
+    하루 밀려도 자연스럽게 "그다음으로 아직 안 본 가장 최근 추천"을 찾아준다.
+    """
+    return (
+        db.query(DailyRecommendation)
+        .filter(DailyRecommendation.date < _today_str(), DailyRecommendation.eod_notified == 0)
+        .order_by(DailyRecommendation.date.desc())
+        .first()
+    )
+
+
 def eod_compute(db: Session) -> dict:
-    """마감 체크(성과 계산 + 상한가 스캔/사유분석/징조기록). 알림은 보내지 않는다."""
+    """수동 '지금 성과 체크': 가장 최근 추천(메인 top3 + 갭상승 후보)의 현재가 기준 성과 +
+    상한가 스캔/기록. 알림은 보내지 않고, 성과체크 완료 처리(eod_notified)도 하지 않는다
+    (자동 잡의 멱등성에 영향을 주지 않기 위함 — "지금 마감 체크"는 언제든 눌러도 안전해야 함)."""
     snapshot = krx.get_full_market_snapshot()
     trading_date = krx.get_latest_trading_date(snapshot)
+    snap_by_ticker = {r["ticker"]: r for r in snapshot}
 
-    performance = _check_performance(db, snapshot, trading_date)
+    rec = _find_pending_morning_check(db) or (
+        db.query(DailyRecommendation).order_by(DailyRecommendation.date.desc()).first()
+    )
+    performance = None
+    if rec is not None:
+        top3 = json.loads(rec.top3_json)
+        gap_top3 = json.loads(rec.gap_top3_json) if rec.gap_top3_json else []
+        main_results = _compute_set_performance(snap_by_ticker, top3)
+        gap_results = _compute_set_performance(snap_by_ticker, gap_top3)
+        performance = {
+            "recommended_date": rec.date,
+            "main": {"results": main_results, "simulation": _simulate_virtual_portfolio(main_results)},
+            "gap": {"results": gap_results, "simulation": _simulate_virtual_portfolio(gap_results)},
+        }
+
     limit_up = _scan_limit_up(db, snapshot, trading_date)
 
     return {"trading_date": trading_date, "performance": performance, "limit_up": limit_up}
 
 
-def eod_run_and_notify(db: Session) -> dict:
-    """매일 16:00 스케줄러 / 외부 크론이 호출: 마감 체크 + 아직 안 보냈으면 푸시 발송.
+def morning_check_and_notify(db: Session) -> dict:
+    """매일 10:00 스케줄러 / GitHub Actions가 호출: 전 거래일 16시 추천(top3 + 갭상승 후보)의
+    현재가 기준 성과 + 1,000만원 가상투자 시뮬레이션을 계산해 아직 안 보냈으면 푸시 발송.
 
-    주말(토/일)에는 마감 자체가 없어 알림을 보내지 않고 건너뛴다.
+    주말(토/일)에는 새로 볼 장이 없어 알림을 보내지 않고 건너뛴다 — 금요일 16시 추천은
+    자동으로 다음 거래일인 월요일 10시에 체크된다(_find_pending_morning_check 참고).
     """
     if _is_weekend(_kst_today()):
         return {"status": "skipped_weekend", "date": _today_str()}
 
-    result = eod_compute(db)
-
-    rec = db.query(DailyRecommendation).filter_by(date=_today_str()).first()
+    rec = _find_pending_morning_check(db)
     if rec is None:
-        return {"status": "no_recommendation_today", **result}
-    if rec.eod_notified:
-        return {"status": "already_notified", **result}
+        return {"status": "no_pending_recommendation"}
 
-    payload = _build_eod_payload(result["performance"], result["limit_up"])
+    snapshot = krx.get_full_market_snapshot()
+    snap_by_ticker = {r["ticker"]: r for r in snapshot}
+    top3 = json.loads(rec.top3_json)
+    gap_top3 = json.loads(rec.gap_top3_json) if rec.gap_top3_json else []
+
+    main_results = _compute_set_performance(snap_by_ticker, top3)
+    gap_results = _compute_set_performance(snap_by_ticker, gap_top3)
+    performance = {
+        "recommended_date": rec.date,
+        "main": {"results": main_results, "simulation": _simulate_virtual_portfolio(main_results)},
+        "gap": {"results": gap_results, "simulation": _simulate_virtual_portfolio(gap_results)},
+    }
+    rec.eod_json = json.dumps(performance, ensure_ascii=False)
+    db.commit()
+
+    payload = _build_morning_check_payload(performance)
     notify_result = _notify(db, payload)
 
     rec.eod_notified = 1
     db.commit()
 
-    return {"status": "notified", **result, **notify_result}
+    return {"status": "notified", **performance, **notify_result}
 
 
-def run_eod_job() -> dict:
-    """DB 세션을 직접 열고 닫으며 16시 마감 작업을 실행한다 (run_daily_job과 동일한 이유)."""
+def run_morning_check_job() -> dict:
+    """DB 세션을 직접 열고 닫으며 10시 성과체크 작업을 실행한다 (run_recommend_job과 동일한 이유)."""
     db = SessionLocal()
     try:
-        return eod_run_and_notify(db)
+        return morning_check_and_notify(db)
     finally:
         db.close()
 
 
-def get_performance_today(db: Session) -> dict | None:
-    rec = db.query(DailyRecommendation).filter_by(date=_today_str()).first()
-    if rec is None or not rec.eod_json:
+def get_performance_latest(db: Session) -> dict | None:
+    """가장 최근에 성과체크가 완료된 추천의 결과(메인 top3 + 갭상승 후보)를 반환한다."""
+    rec = (
+        db.query(DailyRecommendation)
+        .filter(DailyRecommendation.eod_json.isnot(None))
+        .order_by(DailyRecommendation.date.desc())
+        .first()
+    )
+    if rec is None:
         return None
     return json.loads(rec.eod_json)
 

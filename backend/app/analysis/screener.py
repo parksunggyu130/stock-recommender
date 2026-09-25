@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..config import settings
 from ..data import krx, news
-from .indicators import score_stock
+from .indicators import score_gap_candidate, score_stock
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +20,17 @@ def _score_one(stock_info: dict, trading_date: str) -> dict | None:
     try:
         df = krx.get_recent_ohlcv(ticker, trading_date)
         result = score_stock(df)
+        gap_result = score_gap_candidate(df)
     except Exception as exc:  # 개별 종목 실패는 건너뛰고 계속 진행
         logger.warning("스코어링 실패 %s(%s): %s", stock_info["name"], ticker, exc)
         return None
     if result is None:
         return None
-    return {**stock_info, **result}
+    merged = {**stock_info, **result}
+    merged["gap_score"] = gap_result["score"] if gap_result else 0
+    merged["gap_reasons"] = gap_result["reasons"] if gap_result else []
+    merged["gap_change_pct"] = gap_result["change_pct"] if gap_result else 0.0
+    return merged
 
 
 def _score_universe(universe: list[dict], trading_date: str) -> list[dict]:
@@ -43,6 +48,17 @@ def _rank_top_n(scored: list[dict], n: int) -> list[dict]:
     return sorted(
         scored,
         key=lambda s: (s["score"], s.get("trading_value", 0)),
+        reverse=True,
+    )[:n]
+
+
+def _rank_top_gap(scored: list[dict], n: int) -> list[dict]:
+    """'익일 갭상승 후보' top n. 조건을 하나도 못 채운 종목(0점)은 후보가 아니므로 제외한다
+    (조용한 장에서는 3종목이 안 채워질 수 있다)."""
+    candidates = [s for s in scored if s.get("gap_score", 0) > 0]
+    return sorted(
+        candidates,
+        key=lambda s: (s["gap_score"], s.get("trading_value", 0)),
         reverse=True,
     )[:n]
 
@@ -78,12 +94,14 @@ def run_daily_pipeline() -> dict:
     top10 = _rank_top_n(scored, settings.TOP_N_UNIVERSE_RESULT)
     top10_with_news = _attach_news(top10)
     top3 = top10_with_news[: settings.TOP_N_FINAL]
+    gap_top3 = _rank_top_gap(scored, settings.TOP_N_FINAL)
 
     return {
         "date": datetime.date.today().isoformat(),
         "trading_date": trading_date,
         "top10": top10_with_news,
         "top3": top3,
+        "gap_top3": gap_top3,
         "news_enabled": news.is_configured(),
         "universe_scored": scored,  # 상한가 조짐 매칭용 (top10 밖 종목 포함 전체 스캔 결과)
     }

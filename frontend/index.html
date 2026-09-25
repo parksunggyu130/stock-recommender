@@ -23,13 +23,13 @@
 
     <div class="controls">
       <button id="refreshBtn" class="btn btn-primary">🔄 지금 추천받기</button>
-      <button id="eodBtn" class="btn btn-outline">📊 지금 마감 체크</button>
-      <button id="notifyBtn" class="btn btn-outline">🔔 매일 아침 7시 알림 켜기</button>
+      <button id="eodBtn" class="btn btn-outline">📊 지금 성과 체크</button>
+      <button id="notifyBtn" class="btn btn-outline">🔔 매일 16시 알림 켜기</button>
     </div>
     <p id="notifyStatus" class="notify-status"></p>
 
     <section>
-      <h2>오늘의 추천 TOP 3</h2>
+      <h2>오늘 16시 종가 기준 추천 TOP 3 <span class="meta-info">(시간외매매 매수 가능)</span></h2>
       <p id="metaInfo" class="meta-info"></p>
       <div id="top3" class="top3-grid">
         <p class="loading">불러오는 중…</p>
@@ -37,10 +37,18 @@
     </section>
 
     <section>
-      <h2>📊 오늘 추천 종목 성과 (16시 마감 기준)</h2>
-      <p class="meta-info">07시 추천 당시 기준가 대비 오늘 종가 등락률입니다.</p>
+      <h2>📈 익일 갭상승 후보 TOP 3</h2>
+      <p class="meta-info">오늘 캔들의 강한 마감/장대양봉/급등/거래량 특징 기반 (top3와 별개 스코어링, 없을 수도 있음)</p>
+      <div id="gapTop3" class="top3-grid">
+        <p class="loading">불러오는 중…</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>📊 전 거래일 16시 추천 성과 (오늘 10시 기준)</h2>
+      <p class="meta-info">16시 추천 당시 기준가(그날 종가) 대비 다음날 10시 현재가 등락률입니다.</p>
       <div id="performance" class="perf-list">
-        <p class="loading">아직 마감 체크 전입니다. "지금 마감 체크"를 눌러보세요.</p>
+        <p class="loading">아직 성과 체크 전입니다. "지금 성과 체크"를 눌러보세요.</p>
       </div>
     </section>
 

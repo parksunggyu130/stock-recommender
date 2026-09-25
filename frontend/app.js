@@ -1,4 +1,5 @@
 const top3El = document.getElementById("top3");
+const gapTop3El = document.getElementById("gapTop3");
 const top10El = document.getElementById("top10");
 const metaInfoEl = document.getElementById("metaInfo");
 const tradingDateEl = document.getElementById("tradingDate");
@@ -34,6 +35,19 @@ function render(data) {
       </div>`
     )
     .join("") || `<p class="loading">오늘의 추천 데이터가 없습니다.</p>`;
+
+  gapTop3El.innerHTML = (data.gap_top3 || [])
+    .map(
+      (s, i) => `
+      <div class="stock-card">
+        <span class="rank">TOP ${i + 1}</span>
+        <p class="name">${s.name}</p>
+        <p class="ticker">${s.ticker}</p>
+        <p class="price">${fmtPrice(s.close)}</p>
+        <div class="tags">${(s.gap_reasons || []).map((r) => `<span class="tag">${r}</span>`).join("")}</div>
+      </div>`
+    )
+    .join("") || `<p class="loading">오늘은 갭상승 후보 조건을 만족한 종목이 없습니다.</p>`;
 
   top10El.innerHTML = (data.top10 || [])
     .map(
@@ -78,12 +92,11 @@ refreshBtn.addEventListener("click", refreshNow);
 
 // ---- 16시 마감 체크: 추천 성과 / 상한가 / 사전 징조 ----
 
-function renderPerformance(perf) {
-  if (!perf || !perf.available || !perf.results || perf.results.length === 0) {
-    performanceEl.innerHTML = `<p class="loading">아직 마감 체크 전입니다. "지금 마감 체크"를 눌러보세요.</p>`;
-    return;
+function renderPerfSet(label, perfSet) {
+  if (!perfSet || !perfSet.results || perfSet.results.length === 0) {
+    return `<div class="perf-set"><h3>${label}</h3><p class="loading">기록 없음</p></div>`;
   }
-  const rows = perf.results
+  const rows = perfSet.results
     .map((r) => {
       const cls = r.change_pct > 0 ? "up" : r.change_pct < 0 ? "down" : "flat";
       const sign = r.change_pct > 0 ? "+" : "";
@@ -96,7 +109,7 @@ function renderPerformance(perf) {
     })
     .join("");
 
-  const sim = perf.simulation;
+  const sim = perfSet.simulation;
   const simHtml = sim
     ? (() => {
         const cls = sim.profit > 0 ? "up" : sim.profit < 0 ? "down" : "flat";
@@ -112,7 +125,18 @@ function renderPerformance(perf) {
       })()
     : "";
 
-  performanceEl.innerHTML = rows + simHtml;
+  return `<div class="perf-set"><h3>${label}</h3>${rows}${simHtml}</div>`;
+}
+
+function renderPerformance(perf) {
+  if (!perf || !perf.available) {
+    performanceEl.innerHTML = `<p class="loading">아직 성과 체크 전입니다. "지금 성과 체크"를 눌러보세요.</p>`;
+    return;
+  }
+  const dateNote = perf.recommended_date
+    ? `<p class="meta-info">${perf.recommended_date} 16시 추천 기준</p>`
+    : "";
+  performanceEl.innerHTML = dateNote + renderPerfSet("메인 top3", perf.main) + renderPerfSet("갭상승 후보", perf.gap);
 }
 
 function renderLimitUpToday(events) {
@@ -212,16 +236,16 @@ async function loadPrecursorStats() {
 
 async function runEodCheck() {
   eodBtn.disabled = true;
-  eodBtn.textContent = "⏳ 마감 체크 중… (최대 1분)";
+  eodBtn.textContent = "⏳ 성과 체크 중… (최대 1분)";
   try {
     const res = await fetch("/api/eod/refresh", { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
     await Promise.all([loadPerformance(), loadLimitUpToday(), loadPrecursorStats()]);
   } catch (err) {
-    alert("마감 체크에 실패했습니다: " + err.message);
+    alert("성과 체크에 실패했습니다: " + err.message);
   } finally {
     eodBtn.disabled = false;
-    eodBtn.textContent = "📊 지금 마감 체크";
+    eodBtn.textContent = "📊 지금 성과 체크";
   }
 }
 
@@ -251,9 +275,9 @@ async function refreshNotifyButton() {
   const sub = reg ? await reg.pushManager.getSubscription() : null;
   if (sub) {
     notifyBtn.textContent = "🔕 알림 끄기";
-    notifyStatus.textContent = "매일 아침 7시 추천 알림이 켜져 있습니다.";
+    notifyStatus.textContent = "매일 16시 추천 알림이 켜져 있습니다.";
   } else {
-    notifyBtn.textContent = "🔔 매일 아침 7시 알림 켜기";
+    notifyBtn.textContent = "🔔 매일 16시 알림 켜기";
     notifyStatus.textContent = "";
   }
 }

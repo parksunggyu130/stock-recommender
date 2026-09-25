@@ -99,3 +99,43 @@ def score_stock(df: pd.DataFrame) -> dict | None:
         "rsi": round(float(rsi14.iloc[-1]), 1),
         "volume_ratio": round(vol_ratio, 2),
     }
+
+
+GAP_CONDITION_LABELS = (
+    "강한 마감(고가 대비 97% 이상)",
+    "장대양봉(종가-시가 3% 이상)",
+    "당일 급등(전일 대비 +5% 이상)",
+    "거래량 급증(전일 대비 2배 이상)",
+)
+
+
+def score_gap_candidate(df: pd.DataFrame) -> dict | None:
+    """'다음날 시가 갭상승' 후보 스코어링(0~4점).
+
+    실제 익일 시가 갭상승 이벤트를 누적해 통계를 내는 방식이 아니라, 오늘 캔들 자체의
+    강한 마감/장대양봉/급등/거래량 특징만으로 즉시 판단하는 휴리스틱이다 (LimitUpEvent
+    같은 이력 누적이 필요 없어 데이터가 없어도 바로 동작한다).
+    """
+    if df is None or len(df) < 2:
+        return None
+
+    today = df.iloc[-1]
+    prev_close = df["close"].iloc[-2]
+    prev_volume = df["volume"].iloc[-2]
+
+    strong_close = bool(today["high"] > 0 and today["close"] >= today["high"] * 0.97)
+    big_body = bool(today["open"] > 0 and (today["close"] - today["open"]) / today["open"] >= 0.03)
+    change_pct = (today["close"] - prev_close) / prev_close * 100 if prev_close else 0.0
+    big_gain = bool(change_pct >= 5)
+    volume_surge = bool(prev_volume > 0 and today["volume"] / prev_volume >= 2)
+
+    conditions = dict(zip(GAP_CONDITION_LABELS, (strong_close, big_body, big_gain, volume_surge)))
+    score = sum(1 for v in conditions.values() if v)
+    reasons = [label for label, ok in conditions.items() if ok]
+
+    return {
+        "score": score,
+        "reasons": reasons,
+        "close": float(today["close"]),
+        "change_pct": round(float(change_pct), 2),
+    }

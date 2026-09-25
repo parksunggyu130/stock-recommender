@@ -13,20 +13,20 @@ logger = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 
 
-def _daily_job() -> None:
+def _recommend_job() -> None:
     try:
-        result = services.run_daily_job()
-        logger.info("07시 스케줄 작업 완료: %s", result)
+        result = services.run_recommend_job()
+        logger.info("16시 추천 작업 완료: %s", result)
     except Exception:
-        logger.exception("07시 스케줄 작업 실패")
+        logger.exception("16시 추천 작업 실패")
 
 
-def _eod_job() -> None:
+def _morning_check_job() -> None:
     try:
-        result = services.run_eod_job()
-        logger.info("16시 마감 체크 작업 완료: %s", result)
+        result = services.run_morning_check_job()
+        logger.info("10시 성과체크 작업 완료: %s", result)
     except Exception:
-        logger.exception("16시 마감 체크 작업 실패")
+        logger.exception("10시 성과체크 작업 실패")
 
 
 def start_scheduler() -> BackgroundScheduler | None:
@@ -38,8 +38,8 @@ def start_scheduler() -> BackgroundScheduler | None:
         return _scheduler
 
     _scheduler = BackgroundScheduler(timezone="Asia/Seoul")
-    _scheduler.add_job(_daily_job, CronTrigger(hour=7, minute=0, timezone="Asia/Seoul"), id="daily_recommendation")
-    _scheduler.add_job(_eod_job, CronTrigger(hour=16, minute=0, timezone="Asia/Seoul"), id="eod_check")
+    _scheduler.add_job(_recommend_job, CronTrigger(hour=16, minute=0, timezone="Asia/Seoul"), id="recommend")
+    _scheduler.add_job(_morning_check_job, CronTrigger(hour=10, minute=0, timezone="Asia/Seoul"), id="morning_check")
     _scheduler.start()
-    logger.info("인프로세스 스케줄러 시작 (매일 07:00 추천 / 16:00 마감체크, Asia/Seoul)")
+    logger.info("인프로세스 스케줄러 시작 (매일 16:00 추천 / 다음날 10:00 성과체크, Asia/Seoul)")
     return _scheduler
