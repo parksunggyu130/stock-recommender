@@ -187,12 +187,21 @@ def _format_precursor_section(precursor_candidates_json: str | None) -> str:
     )
 
 
+def _format_top3_with_reasons(top3: list[dict], reasons_key: str = "reasons") -> str:
+    lines = []
+    for i, s in enumerate(top3, start=1):
+        reasons = ", ".join(s.get(reasons_key) or []) or "조건 없음"
+        lines.append(f"{i}. {s['name']}({s['ticker']}) — {reasons}")
+    return "\n".join(lines)
+
+
 def _format_gap_section(gap_top3: list[dict]) -> str:
     """16시 알림에 붙일 '익일 갭상승 후보' 섹션(메인 top3와 별개 스코어링). 후보가 없으면 빈 문자열."""
     if not gap_top3:
         return ""
-    names = ", ".join(f"{s['name']}({s['ticker']})" for s in gap_top3)
-    return f"\n\n📈 익일 갭상승 후보(오늘 캔들 특징 기반, top3와 별개): {names}"
+    return "\n\n📈 익일 갭상승 후보(오늘 캔들 특징 기반, top3와 별개):\n" + _format_top3_with_reasons(
+        gap_top3, reasons_key="gap_reasons"
+    )
 
 
 def run_and_notify(db: Session) -> dict:
@@ -223,11 +232,11 @@ def run_and_notify(db: Session) -> dict:
 
     top3 = json.loads(row.top3_json)
     gap_top3 = json.loads(row.gap_top3_json) if row.gap_top3_json else []
-    names = ", ".join(f"{s['name']}({s['ticker']})" for s in top3)
+    top3_text = _format_top3_with_reasons(top3)
     payload = {
         "title": "오늘 16시 종가 기준 추천 (시간외매매 매수 가능)",
         "body": (
-            f"{names}\n※ 투자 참고용, 투자 권유 아님"
+            f"{top3_text}\n※ 투자 참고용, 투자 권유 아님"
             f"{_format_gap_section(gap_top3)}"
             f"{_format_limit_up_section(limit_up)}"
             f"{_format_precursor_section(row.precursor_candidates_json)}"
