@@ -37,6 +37,14 @@ class Settings:
     CRON_SECRET: str = os.getenv("CRON_SECRET", "change-this-secret")
     RUN_INPROCESS_SCHEDULER: bool = _bool("RUN_INPROCESS_SCHEDULER", True)
 
+    # GitHub Actions가 `data` 브랜치에 커밋해두는 누적 data.db의 raw URL.
+    # 승률/상한가 조짐 통계처럼 "누적"이 의미 있는 조회 API는 이 파일을 내려받아 읽는다
+    # (Render 등 무료 호스팅의 로컬 DB는 재배포마다 초기화되어 누적 통계를 담을 수 없음).
+    GITHUB_DATA_DB_URL: str = os.getenv(
+        "GITHUB_DATA_DB_URL",
+        "https://raw.githubusercontent.com/parksunggyu130/stock-recommender/data/data.db",
+    )
+
     TOP_N_UNIVERSE_RESULT: int = 10
     TOP_N_FINAL: int = 3
     TECH_WEIGHT: float = 0.7

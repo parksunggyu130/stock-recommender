@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import services
-from ..db import get_db
+from ..db import get_db, github_data_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["eod"])
@@ -24,7 +24,8 @@ def eod_refresh(db: Session = Depends(get_db)):
 
 @router.get("/performance/today")
 def performance_today(db: Session = Depends(get_db)):
-    result = services.get_performance_latest(db)
+    with github_data_session() as remote_db:
+        result = services.get_performance_latest(remote_db if remote_db is not None else db)
     if result is None:
         return {"available": False}
     return {"available": True, **result}
@@ -32,4 +33,5 @@ def performance_today(db: Session = Depends(get_db)):
 
 @router.get("/performance/win-rate")
 def performance_win_rate(db: Session = Depends(get_db)):
-    return services.get_win_rate_stats(db)
+    with github_data_session() as remote_db:
+        return services.get_win_rate_stats(remote_db if remote_db is not None else db)
