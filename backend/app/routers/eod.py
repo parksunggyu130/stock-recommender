@@ -28,3 +28,8 @@ def performance_today(db: Session = Depends(get_db)):
     if result is None:
         return {"available": False}
     return {"available": True, **result}
+
+
+@router.get("/performance/win-rate")
+def performance_win_rate(db: Session = Depends(get_db)):
+    return services.get_win_rate_stats(db)

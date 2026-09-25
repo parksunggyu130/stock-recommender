@@ -1,4 +1,4 @@
-const CACHE_NAME = "stock-recommender-v2";
+const CACHE_NAME = "stock-recommender-v3";
 const APP_SHELL = ["/", "/style.css", "/app.js", "/manifest.json"];
 
 self.addEventListener("install", (event) => {

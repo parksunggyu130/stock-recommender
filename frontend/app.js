@@ -8,6 +8,7 @@ const eodBtn = document.getElementById("eodBtn");
 const notifyBtn = document.getElementById("notifyBtn");
 const notifyStatus = document.getElementById("notifyStatus");
 const performanceEl = document.getElementById("performance");
+const winRateEl = document.getElementById("winRate");
 const limitUpTodayEl = document.getElementById("limitUpToday");
 const precursorStatsEl = document.getElementById("precursorStats");
 const precursorMetaEl = document.getElementById("precursorMeta");
@@ -215,6 +216,32 @@ async function loadPerformance() {
   }
 }
 
+function renderWinRateSet(label, stat) {
+  if (!stat || stat.total === 0) {
+    return `<div class="perf-set"><h3>${label}</h3><p class="loading">아직 누적된 기록이 없습니다.</p></div>`;
+  }
+  const rateText = stat.win_rate === null ? "승률 계산 불가(승/패 기록 없음)" : `승률 ${stat.win_rate}%`;
+  return `
+    <div class="perf-set">
+      <h3>${label}</h3>
+      <div class="perf-row">
+        <span>${rateText}</span>
+        <span>${stat.wins}승 ${stat.losses}패 ${stat.flat}무 (총 ${stat.total}건)</span>
+      </div>
+    </div>`;
+}
+
+async function loadWinRate() {
+  try {
+    const res = await fetch("/api/performance/win-rate");
+    const stats = await res.json();
+    const dayNote = `<p class="meta-info">누적 ${stats.sample_days}회 추천 기준</p>`;
+    winRateEl.innerHTML = dayNote + renderWinRateSet("메인 top3", stats.main) + renderWinRateSet("갭상승 후보", stats.gap);
+  } catch (err) {
+    winRateEl.innerHTML = `<p class="loading">불러오지 못했습니다: ${err.message}</p>`;
+  }
+}
+
 async function loadLimitUpToday() {
   try {
     const res = await fetch("/api/limit-up/today");
@@ -240,7 +267,7 @@ async function runEodCheck() {
   try {
     const res = await fetch("/api/eod/refresh", { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
-    await Promise.all([loadPerformance(), loadLimitUpToday(), loadPrecursorStats()]);
+    await Promise.all([loadPerformance(), loadWinRate(), loadLimitUpToday(), loadPrecursorStats()]);
   } catch (err) {
     alert("성과 체크에 실패했습니다: " + err.message);
   } finally {
@@ -345,5 +372,6 @@ notifyBtn.addEventListener("click", async () => {
 getRegistration().then(refreshNotifyButton);
 loadToday();
 loadPerformance();
+loadWinRate();
 loadLimitUpToday();
 loadPrecursorStats();

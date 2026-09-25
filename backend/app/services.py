@@ -483,6 +483,42 @@ def get_performance_latest(db: Session) -> dict | None:
     return json.loads(rec.eod_json)
 
 
+def _summarize_win_rate(results: list[dict]) -> dict:
+    wins = sum(1 for r in results if r["change_pct"] > 0)
+    losses = sum(1 for r in results if r["change_pct"] < 0)
+    flat = sum(1 for r in results if r["change_pct"] == 0)
+    decided = wins + losses
+    win_rate = round(wins / decided * 100, 1) if decided else None
+    return {"wins": wins, "losses": losses, "flat": flat, "total": len(results), "win_rate": win_rate}
+
+
+def get_win_rate_stats(db: Session) -> dict:
+    """지금까지 누적된 성과체크 결과로 메인 top3 / 갭상승 후보 각각의 승률을 계산한다.
+
+    승 = 등락률 > 0, 패 = 등락률 < 0. 등락률이 정확히 0%인 건(주로 휴장일 등 데이터 특성)은
+    무승부로 집계만 하고 승률(win_rate) 계산에서는 제외한다(분모를 왜곡하지 않기 위함).
+    """
+    rows = (
+        db.query(DailyRecommendation)
+        .filter(DailyRecommendation.eod_json.isnot(None))
+        .order_by(DailyRecommendation.date.asc())
+        .all()
+    )
+
+    main_results: list[dict] = []
+    gap_results: list[dict] = []
+    for row in rows:
+        perf = json.loads(row.eod_json)
+        main_results.extend(perf.get("main", {}).get("results", []))
+        gap_results.extend(perf.get("gap", {}).get("results", []))
+
+    return {
+        "sample_days": len(rows),
+        "main": _summarize_win_rate(main_results),
+        "gap": _summarize_win_rate(gap_results),
+    }
+
+
 def get_limit_up_today(db: Session) -> list[dict]:
     today = _today_str()
     events = db.query(LimitUpEvent).filter_by(date=today).all()
